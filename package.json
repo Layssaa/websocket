@@ -5,7 +5,8 @@
   "repository": "https://github.com/Layssaa/websocket.git",
   "author": "Layssa <layssa.lima166@gmail.com>",
   "scripts": {
-    "dev": "nodemon src/server.js"
+    "dev": "nodemon src/server.js",
+    "start": "node src/server.js"
   },
   "license": "MIT",
   "dependencies": {
