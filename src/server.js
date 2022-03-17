@@ -1,5 +1,6 @@
 const express = require("express");
 const https = require("https");
+const http = require("http")
 const path = require("path");
 const ws = require("ws");
 const fs = require("fs");
@@ -11,12 +12,14 @@ const app = express();
 // -----------------------------------------------------------------------
 app.use(express.json());
 
-const server = https.createServer(
-  {
-    key: fs.readFileSync(path.join(__dirname, "certs", "selfkey.key")),
-    cert: fs.readFileSync(path.join(__dirname, "certs", "selfCerts.crt")),
-  },
-);
+const server = http.createServer();
+
+// const server = https.createServer(
+//   {
+//     key: fs.readFileSync(path.join(__dirname, "certs", "selfkey.key")),
+//     cert: fs.readFileSync(path.join(__dirname, "certs", "selfCerts.crt")),
+//   },
+// );
 
 const wss = new ws.Server({ noServer: true });
 const wss2 = new ws.Server({ noServer: true });
