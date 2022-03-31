@@ -3,6 +3,7 @@ const https = require("https");
 const path = require("path");
 const ws = require("ws");
 const fs = require("fs");
+const { v4: uuidv4 } = require("uuid");
 
 const PORT = 3030;
 
@@ -11,41 +12,87 @@ const app = express();
 // -----------------------------------------------------------------------
 app.use(express.json());
 
-const server = https.createServer(
-  {
-    key: fs.readFileSync(path.join(__dirname, "certs", "selfkey.key")),
-    cert: fs.readFileSync(path.join(__dirname, "certs", "selfCerts.crt")),
-  },
-);
+const server = https.createServer({
+  key: fs.readFileSync(path.join(__dirname, "certs", "selfkey.key")),
+  cert: fs.readFileSync(path.join(__dirname, "certs", "selfCerts.crt")),
+});
 
-const wss = new ws.Server({ noServer: true });
-const wss2 = new ws.Server({ noServer: true });
+const wss = new ws.Server({ port: 5050 });
+
+let chats = {
+  games: [],
+  movies: [],
+};
+
+let users = {
+  0: "adm",
+};
+
+wss.on("open", function open() {
+  ws.send(JSON.stringify({ users }));
+});
 
 wss.on("connection", function connection(ws) {
-  ws.on("message", function message(data, isBinary) {
+  ws.on("message", function message(data) {
     const hour = new Date().toLocaleTimeString();
+
     const msg = {
       ...JSON.parse(data),
       hour,
     };
 
-    wss.clients.forEach(function each(client) {
+    if (!msg.id) {
+      const id = uuidv4();
+      msg.id = id;
+      ws.id = id;
+    }
+
+    if (!users[msg.id]) {
+      // id : nome
+      users[msg.id] = msg.name;
+    }
+
+    if (!chats[msg.id]) {
+      chats[msg.id] = [ws];
+    }
+
+    if (!chats[msg.roomHash]) {
+      return ws.send(
+        JSON.stringify({
+          name: "server",
+          msg: `Canal inválido.`,
+          hour,
+          users,
+        })
+      );
+    }
+
+    if (
+      !chats[msg.roomHash].find((elem) => elem.id === msg.id) &&
+      msg.event !== "private"
+    ) {
+      chats[msg.roomHash].push(ws);
+    }
+
+    chats[msg.roomHash].forEach(function each(client) {
       if (client !== ws && client.readyState === ws.OPEN) {
-        if (msg.msg == "connect") {
+        if (msg.event == "connect") {
           return client.send(
             JSON.stringify({
               name: "server",
               msg: `${msg.name} acabou de entrar no canal`,
               hour,
+              users,
+              id: msg.id,
             })
           );
         }
 
-        if (msg.msg == "disconnect") {
+        if (msg.event == "disconnect") {
           return client.send(
             JSON.stringify({
               name: "server",
-              msg: `${msg.name} saiu do canal`,
+              msg: `${users[msg.id]} saiu do canal`,
               hour,
             })
           );
@@ -57,104 +104,37 @@ wss.on("connection", function connection(ws) {
   });
 
   ws.on("close", function close(data) {
-    wss.clients.forEach(function each(client) {
-      if (client !== ws && client.readyState === ws.OPEN) {
-        const hour = new Date().toLocaleTimeString();
+    console.log("close");
+    ws.on("message", function message(data) {
+      wss.clients.forEach(function each(client) {
+        if (client !== ws && client.readyState === ws.OPEN) {
+          const hour = new Date().toLocaleTimeString();
 
-        client.send(
-          JSON.stringify({
-            name: "server",
-            msg: `Alguém acabou de sair da sala.`,
-            hour,
-          })
-        );
-      }
+          client.send(
+            JSON.stringify({
+              name: "server",
+              msg: `${users[ws.id]} acabou de sair da sala.`,
+              hour,
+            })
+          );
+        }
+      });
     });
   });
 
   const hour = new Date().toLocaleTimeString();
-  ws.send(
-    JSON.stringify({ name: "server", msg: "Você entrou no canal 1.", hour })
-  );
-});
 
-wss2.on("connection", function connection(ws) {
-  ws.on("message", function message(data, isBinary) {
-    const hour = new Date().toLocaleTimeString();
-    const msg = {
-      ...JSON.parse(data),
+  ws.send(
+    JSON.stringify({
+      name: "server",
+      msg: `Você entrou no canal.`,
       hour,
-    };
-
-    wss.clients.forEach(function each(client) {
-      if (client !== ws && client.readyState === ws.OPEN) {
-        if (msg.msg == "connect") {
-          return client.send(
-            JSON.stringify({
-              name: "server",
-              msg: `${msg.name} acabou de entrar no canal 2`,
-              hour,
-            })
-          );
-        }
-
-        if (msg.msg == "disconnect") {
-          return client.send(
-            JSON.stringify({
-              name: "server",
-              msg: `${msg.name} saiu do canal 2`,
-              hour,
-            })
-          );
-        }
-
-        client.send(JSON.stringify(msg));
-      }
-    });
-  });
-
-  ws.on("close", function close(data) {
-    wss.clients.forEach(function each(client) {
-      if (client !== ws && client.readyState === ws.OPEN) {
-        const hour = new Date().toLocaleTimeString();
-
-        client.send(
-          JSON.stringify({
-            name: "server",
-            msg: `Alguém acabou de sair da sala.`,
-            hour,
-          })
-        );
-      }
-    });
-  });
-
-  const hour = new Date().toLocaleTimeString();
-  ws.send(
-    JSON.stringify({ name: "server", msg: "Você entrou no canal 2.", hour })
+      users,
+    })
   );
 });
 
-server.on("upgrade", function upgrade(request, socket, head) {
-  const URL = request.url;
-  const ip = request.socket.remoteAddress;
-console.log("-------------- IP ---------------");
-console.log(ip);
-
-  if (URL === "/channel1") {
-    console.log("switch channel 1");
-    wss.handleUpgrade(request, socket, head, function done(ws) {
-      wss.emit("connection", ws, request);
-    });
-  } else if (URL === "/channel2") {
-    console.log("switch channel 2");
-    wss2.handleUpgrade(request, socket, head, function done(ws) {
-      wss2.emit("connection", ws, request);
-    });
-  } else {
-    console.log("sem canal");
-  }
-});
+wss.on("error", (error) => console.log((ws, error)));
 
 // -----------------------------------------------------------------------
 server.listen(PORT, function (err) {
